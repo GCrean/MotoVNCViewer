@@ -15,14 +15,17 @@ IDirectDrawSurface  *	pBackSurf;										//Background Surface Interface
 LPCWSTR					szMessage = NULL;								//Displayed Message
 CHAR					szAddress[40] = {0};							//IP Address of Server
 DWORD					dwPort = 5900;									// IP Port of Server
+KeyMap					keymap;
 
 //Internal Windows Messages
 static LRESULT WndCreate(HWND hWnd, UINT wMsg, WPARAM wParam, LPARAM lParam);
 static LRESULT WndDestory(HWND hWnd, UINT wMsg, WPARAM wParam, LPARAM lParam);
 static LRESULT WndPaint(HWND hWnd, UINT wMsg, WPARAM wParam, LPARAM lParam);
-static LRESULT WndButtonDown(HWND hWnd, UINT wMsg, WPARAM wParam, LPARAM lParam);
-static LRESULT WndButtonUp(HWND hWnd, UINT wMsg, WPARAM wParam, LPARAM lParam);
-static LRESULT WndButtonMove(HWND hWnd, UINT wMsg, WPARAM wParam, LPARAM lParam);
+static LRESULT WndLButtonDown(HWND hWnd, UINT wMsg, WPARAM wParam, LPARAM lParam);
+static LRESULT WndLButtonUp(HWND hWnd, UINT wMsg, WPARAM wParam, LPARAM lParam);
+static LRESULT WndMouseMove(HWND hWnd, UINT wMsg, WPARAM wParam, LPARAM lParam);
+static LRESULT WndKeyEvent(HWND hWnd, UINT wMsg, WPARAM wParam, LPARAM lParam);
+static LRESULT WndCharEvent(HWND hWnd, UINT wMsg, WPARAM wParam, LPARAM lParam);
 
 // Message dispatch table for WindowProc
 static const struct DecodeWindowMessage Messages[] = 
@@ -30,9 +33,15 @@ static const struct DecodeWindowMessage Messages[] =
 	WM_PAINT,WndPaint,
 	WM_CREATE,WndCreate,
 	WM_DESTROY,WndDestory,
-	WM_LBUTTONUP,WndButtonUp,
-	WM_LBUTTONDOWN,WndButtonDown,
-	WM_MOUSEMOVE,WndButtonMove,
+	WM_LBUTTONUP,WndLButtonUp,
+	WM_LBUTTONDOWN,WndLButtonUp,
+	WM_MOUSEMOVE,WndMouseMove,
+	WM_KEYDOWN,WndKeyEvent,
+	WM_KEYUP,WndKeyEvent,
+	WM_SYSKEYDOWN,WndKeyEvent,
+	WM_SYSKEYUP,WndKeyEvent,
+	WM_CHAR,WndCharEvent,
+	WM_SYSCHAR,WndCharEvent
 };
 /****************************************************************************************************/
 static LRESULT WndCreate(HWND hWnd, UINT wMsg, WPARAM wParam, LPARAM lParam)
@@ -68,22 +77,72 @@ PAINTSTRUCT ps;
 	return 0;
 }
 /****************************************************************************************************/
-static LRESULT WndButtonDown(HWND hWnd, UINT wMsg, WPARAM wParam, LPARAM lParam)
+static LRESULT WndLButtonDown(HWND hWnd, UINT wMsg, WPARAM wParam, LPARAM lParam)
 {
 	SendMouseEvent(rfbButton1Mask,LOWORD(lParam),HIWORD(lParam));
 	return TRUE;
 }
 /****************************************************************************************************/
-static LRESULT WndButtonUp(HWND hWnd, UINT wMsg, WPARAM wParam, LPARAM lParam)
+static LRESULT WndLButtonUp(HWND hWnd, UINT wMsg, WPARAM wParam, LPARAM lParam)
 {
 	SendMouseEvent(0,LOWORD(lParam),HIWORD(lParam));
 	return TRUE;
 }
 /****************************************************************************************************/
-static LRESULT WndButtonMove(HWND hWnd, UINT wMsg, WPARAM wParam, LPARAM lParam)
+static LRESULT WndMouseMove(HWND hWnd, UINT wMsg, WPARAM wParam, LPARAM lParam)
 {
 	SendMouseEvent(rfbButton1Mask,LOWORD(lParam),HIWORD(lParam));
 	return TRUE;
+}
+/****************************************************************************************************/
+static LRESULT WndKeyEvent(HWND hWnd, UINT wMsg, WPARAM wParam, LPARAM lParam)
+{
+KeyActionSpec kas = keymap.PCtoX(wParam, lParam);    
+BOOL bDown = ((lParam & 0x80000000l) == 0) ? TRUE : FALSE;
+
+    if (kas.releaseModifiers & KEYMAP_LCONTROL) {
+        SendKeyEvent(XK_Control_L, FALSE );
+    }
+    if (kas.releaseModifiers & KEYMAP_LALT) {
+        SendKeyEvent(XK_Alt_L, FALSE );
+    }
+    if (kas.releaseModifiers & KEYMAP_RCONTROL) {
+        SendKeyEvent(XK_Control_R, FALSE );
+    }
+    if (kas.releaseModifiers & KEYMAP_RALT) {
+        SendKeyEvent(XK_Alt_R, FALSE );
+    }
+
+    for (int i = 0; kas.keycodes[i] != XK_VoidSymbol && i < MaxKeysPerKey; i++) {
+        SendKeyEvent(kas.keycodes[i], bDown );
+    }
+
+    if (kas.releaseModifiers & KEYMAP_RALT) {
+        SendKeyEvent(XK_Alt_R, TRUE );
+    }
+    if (kas.releaseModifiers & KEYMAP_RCONTROL) {
+        SendKeyEvent(XK_Control_R, TRUE );
+    }
+    if (kas.releaseModifiers & KEYMAP_LALT) {
+        SendKeyEvent(XK_Alt_L, FALSE );
+    }
+    if (kas.releaseModifiers & KEYMAP_LCONTROL) {
+        SendKeyEvent(XK_Control_L, FALSE );
+    }
+
+	return 0;
+}
+/****************************************************************************************************/
+static LRESULT WndCharEvent(HWND hWnd, UINT wMsg, WPARAM wParam, LPARAM lParam)
+{
+     if (wParam == 0x0D || wParam == 0x20 || wParam == 0x08) return 0;
+     if (wParam < 32) wParam += 64;  // map ctrl-keys onto alphabet
+     if (wParam > 32 && wParam < 127)
+	 {
+		SendKeyEvent(wParam & 0xff, TRUE);
+        SendKeyEvent(wParam & 0xff, FALSE);
+     }
+	 return 0;
 }
 /****************************************************************************************************/
 static LRESULT CALLBACK WindowProc (HWND hWnd, UINT wMsg, WPARAM wParam,LPARAM lParam)
@@ -250,4 +309,17 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE,LPWSTR, INT)
 
 	return 0;
 }
-
+/****************************************************************************************************/
+// allocate memory for zlib
+extern "C" voidpf zcalloc (voidpf opaque, unsigned items, unsigned size)
+{
+    if (opaque) items += size - size; 
+	return (voidpf)LocalAlloc(LPTR, items * size);
+}
+/****************************************************************************************************/
+// free memory for zlib
+extern "C" void  zcfree (voidpf opaque, voidpf ptr)
+{
+	LocalFree((HLOCAL)ptr);
+    if (opaque) return; 
+}

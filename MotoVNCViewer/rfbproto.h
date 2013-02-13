@@ -284,12 +284,15 @@ typedef struct {
  *
  *****************************************************************************/
 
-#define rfbEncodingRaw 0
-#define rfbEncodingCopyRect 1
-#define rfbEncodingRRE 2
-#define rfbEncodingCoRRE 4
-#define rfbEncodingHextile 5
-
+#define rfbEncodingRaw         0
+#define rfbEncodingCopyRect    1
+#define rfbEncodingRRE         2
+#define rfbEncodingCoRRE       4
+#define rfbEncodingHextile	   5
+#define rfbEncodingZlib        6
+#define rfbEncodingTight       7
+#define rfbEncodingZlibHex     8
+#define rfbEncodingZRLE       16
 /*****************************************************************************
  *
  * Bi-directional message types

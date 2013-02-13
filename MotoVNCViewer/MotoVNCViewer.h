@@ -5,12 +5,16 @@
 #include "DbgAPI.h"
 #include "ddraw.h"
 #include "rfb.h"
+#include "ZLib.h"
+#include "KeyMap.h"
 
 #pragma comment(lib,"AygShell")
 #pragma comment(lib,"ws2")
+#pragma comment(lib,"ZLib")
 
 #define MOTOWNDCLASSNAME		L"MotoVNCClass"
-#define	RETRY_TIMER				2000
+#define	RETRY_TIMER				1000
+#define RETRY_CONFIG			5000
 #define THREAD_TIMEOUT			5000
 
 //Helper
@@ -42,6 +46,7 @@ void SetMessage(LPCWSTR lpszMessage);
 BOOL InitVNCViewer();
 void DeinitVNCViewer();
 BOOL SendMouseEvent(DWORD dwFlags,DWORD dwXPos,DWORD dwYPos);
+BOOL SendKeyEvent(DWORD dwKey,BOOL bDown);
 
 //Utils.cpp
 BOOL SendBuffer(SOCKET sSocket,LPBYTE bBuffer,DWORD dwLength);

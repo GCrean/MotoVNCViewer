@@ -305,7 +305,7 @@
 				Name="VCCLCompilerTool"
 				ExecutionBucket="7"
 				Optimization="2"
-				FavorSizeOrSpeed="2"
+				FavorSizeOrSpeed="1"
 				PreprocessorDefinitions="NDEBUG;_WIN32_WCE=$(CEVER);UNDER_CE;$(PLATFORMDEFINES);WINCE;_WINDOWS;$(ARCHFAM);$(_ARCHFAM_);_UNICODE;UNICODE"
 				RuntimeLibrary="0"
 				UsePrecompiledHeader="0"
@@ -553,6 +553,10 @@
 			UniqueIdentifier="{4FC737F1-C7A5-4376-A066-2A32D752A2FF}"
 			>
 			<File
+				RelativePath=".\KeyMap.cpp"
+				>
+			</File>
+			<File
 				RelativePath=".\MotoVNCViewer.cpp"
 				>
 			</File>
@@ -571,6 +575,10 @@
 			UniqueIdentifier="{93995380-89BD-4b04-88EB-625FBE52EBFB}"
 			>
 			<File
+				RelativePath=".\KeyMap.h"
+				>
+			</File>
+			<File
 				RelativePath=".\MotoVNCViewer.h"
 				>
 			</File>
@@ -584,6 +592,10 @@
 			</File>
 			<File
 				RelativePath=".\SymKey.h"
+				>
+			</File>
+			<File
+				RelativePath=".\zconf.h"
 				>
 			</File>
 		</Filter>

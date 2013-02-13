@@ -16,58 +16,88 @@ static DWORD	dwBytesPerPixel;
 static DWORD	dwBufferSize;
 static DWORD	dwPitch;
 static BOOL		bConnected = FALSE;
+static BYTE		bColorMode = 0;
 
-const rfbPixelFormat vnc8bitFormat = {8, 8, 1, 1, 7,7,3, 0,3,6,0,0};
-const rfbPixelFormat vnc16bitFormat = {16, 16, 1, 1, 63, 31, 31, 0,6,11,0,0};
+static rfbPixelFormat vnc8bitFormat = {8, 8, 1, 1, 7,7,3, 0,3,6,0,0};
+static rfbPixelFormat vnc16bitFormat = {16, 16, 1, 1, 31, 63, 31, 11,5,0,0,0};
+static rfbPixelFormat vncServerFormat = {0};
+static rfbPixelFormat *vncSelectedFormat = NULL;
 
 //Prototypes
 static void SetPixels(DWORD dwXPos,DWORD dwYPos,DWORD dwWidth,DWORD dwHeight);
 static BOOL ProcessRawEncoding(rfbFramebufferUpdateRectHeader *lpuh);
-static BOOL ProcessHexTileEncoding(rfbFramebufferUpdateRectHeader *lpuh);
 
 /****************************************************************************************************/
 static BOOL CreateImageBitmap()
 {
-	rfbServerInitMsg	si = {0};
 	rfbSetPixelFormatMsg spf = {0};
 	LPBITMAPINFO		lpBitmapInfo = NULL;
 	LPDWORD				lpColorTable = NULL;
 
-	//Recieve VNC Parameters
-	if (!RecvBuffer(sSocket,(LPBYTE)&si,sizeof(si))) return FALSE;
+	//Select the required format
+	switch (bColorMode)
+	{
+		case 1:
+			vncSelectedFormat = &vnc16bitFormat;
+			break;
 
-	//Recieve The Server Name
-	LPBYTE lpTemp= new BYTE[Swap32IfLE(si.nameLength)];
-	RecvBuffer(sSocket,lpTemp,Swap32IfLE(si.nameLength));
-	delete lpTemp;
+		case 2:
+			vncSelectedFormat = &vncServerFormat;
+			break;
+
+		default:
+			vncSelectedFormat = &vnc8bitFormat;
+			break;
+	}
 
 	//Set Pixel Format
 	spf.type = rfbSetPixelFormat;
-	spf.format = vnc16bitFormat;
-    spf.format.redMax = Swap16IfLE(spf.format.redMax);
-    spf.format.greenMax = Swap16IfLE(spf.format.greenMax);
-    spf.format.blueMax = Swap16IfLE(spf.format.blueMax);
+	memcpy(&spf.format,vncSelectedFormat,sizeof(rfbPixelFormat));
+	spf.format.redMax = Swap16IfLE(spf.format.redMax);
+	spf.format.greenMax = Swap16IfLE(spf.format.greenMax);
+	spf.format.blueMax = Swap16IfLE(spf.format.blueMax);
 	spf.format.bigEndian = 0;
 	if (!SendBuffer(sSocket,(LPBYTE)&spf,sizeof(spf))) return FALSE;
 
+	//Delete Any Old Bitmaps
+	if (hBitmap)
+	{
+		SelectObject(hClientDC,hOldBitmap);	
+		DeleteObject(hBitmap);
+	}
+
 	//Create working Buffer
-	lpBitmapInfo = (LPBITMAPINFO) LocalAlloc(LPTR,sizeof(BITMAPINFO) + (4 * sizeof(DWORD)));
+	lpBitmapInfo = (LPBITMAPINFO) LocalAlloc(LPTR,sizeof(BITMAPINFO) + (256 * sizeof(DWORD)));
 	if (!lpBitmapInfo) return FALSE;
 	lpColorTable = (LPDWORD) lpBitmapInfo->bmiColors;
-
-	dwClientHeight										= Swap16IfLE(si.framebufferHeight);
-	dwClientWidth										= Swap16IfLE(si.framebufferWidth);
-	dwPitch												= dwClientWidth + ((dwClientWidth / 8) % 4);
+	dwPitch												= dwClientWidth + ((dwClientWidth / 4) % 4);
 	lpBitmapInfo->bmiHeader.biSize						= sizeof(BITMAPINFOHEADER);
 	lpBitmapInfo->bmiHeader.biCompression				= BI_BITFIELDS;
 	lpBitmapInfo->bmiHeader.biPlanes					= 1;
 	lpBitmapInfo->bmiHeader.biBitCount = wBPP			= spf.format.bitsPerPixel;
 	lpBitmapInfo->bmiHeader.biWidth						= dwPitch;
-	lpBitmapInfo->bmiHeader.biHeight					= -dwClientHeight;
-
+	lpBitmapInfo->bmiHeader.biHeight					= -(LONG)dwClientHeight;
 	lpColorTable[0] = Swap16IfLE(spf.format.redMax) << spf.format.redShift;
 	lpColorTable[1] = Swap16IfLE(spf.format.greenMax) << spf.format.greenShift;
 	lpColorTable[2] = Swap16IfLE(spf.format.blueMax) << spf.format.blueShift;
+
+	//8 Bit
+	if (wBPP == 8)
+	{
+		lpBitmapInfo->bmiHeader.biCompression = BI_RGB;
+		int p=0;
+		for (int b = 0; b <= 3; b++) {
+			for (int g = 0; g <= 7; g++) {
+				for (int r = 0; r <= 7; r++) {
+					lpBitmapInfo->bmiColors[p].rgbRed = r * 255 / 7; 	
+					lpBitmapInfo->bmiColors[p].rgbGreen = g * 255 / 7;
+					lpBitmapInfo->bmiColors[p].rgbBlue  = b * 255 / 3;
+					p++;
+				}
+			}
+		}		
+		lpBitmapInfo->bmiHeader.biClrUsed = p;
+	}
 
 	//Allocate a screen buffer
 	HDC hDc = GetDC(NULL);
@@ -91,15 +121,30 @@ static BOOL Negotiate()
 	CHAR				szVersion[13] = {0};
 	DWORD				dwAuthType =0;
 	rfbClientInitMsg	ci={1};
+	rfbServerInitMsg	si = {0};
 
 	//Recieve Server Version
 	if (!RecvBuffer(sSocket,(LPBYTE)szVersion,12)) return FALSE;
-	strcpy(szVersion,"RFB 003.003\x0a");
+	sprintf(szVersion,rfbProtocolVersionFormat,rfbProtocolMajorVersion,rfbProtocolMinorVersion);
 	if (!SendBuffer(sSocket,(LPBYTE)szVersion,12)) return FALSE;
 
 	//Get Auth Type
 	if (!RecvBuffer(sSocket,(LPBYTE)&dwAuthType,sizeof(DWORD))) return FALSE;
 	if (!SendBuffer(sSocket,(LPBYTE)&ci,sizeof(ci))) return FALSE;
+
+	//Recieve VNC Parameters
+	if (!RecvBuffer(sSocket,(LPBYTE)&si,sizeof(si))) return FALSE;
+	memcpy(&vncServerFormat,&si.format,sizeof(vncServerFormat));
+	dwClientHeight	= Swap16IfLE(si.framebufferHeight);
+	dwClientWidth	= Swap16IfLE(si.framebufferWidth);
+    vncServerFormat.redMax = Swap16IfLE(vncServerFormat.redMax);
+    vncServerFormat.greenMax = Swap16IfLE(vncServerFormat.greenMax);
+    vncServerFormat.blueMax = Swap16IfLE(vncServerFormat.blueMax);
+
+	//Recieve The Server Name
+	LPBYTE lpTemp= new BYTE[Swap32IfLE(si.nameLength)];
+	RecvBuffer(sSocket,lpTemp,Swap32IfLE(si.nameLength));
+	delete lpTemp;
 
 	return TRUE;
 }
@@ -130,6 +175,8 @@ rfbServerToClientMsg			*Msg = NULL;
 			sprintf(szAddress,"%ls",szAddress);
 			dwSz = sizeof(dwPort);
 			RegQueryValueEx(hKey,L"IPPort",NULL,NULL,(LPBYTE)&dwPort,&dwSz);
+			dwSz = sizeof(bColorMode);
+			RegQueryValueEx(hKey,L"ColorMode",NULL,NULL,(LPBYTE)&bColorMode,&dwSz);
 			RegCloseKey(hKey);
 		}
 
@@ -137,12 +184,12 @@ rfbServerToClientMsg			*Msg = NULL;
 		if (szAddress[0] == L'\0')
 		{
 			SetMessage(L"Not Configured");
-			dwReTry = 5000;
+			dwReTry = RETRY_CONFIG;
 			continue;
 		}
 
 		//Display Message
-		SetMessage(L"Connecting");
+		SetMessage(L"Searching");
 
 		//Create non-blocking socket
 		sSocket = socket(AF_INET,SOCK_STREAM,0);
@@ -173,9 +220,9 @@ rfbServerToClientMsg			*Msg = NULL;
 		rfbEncoding.type = rfbSetEncodings;
 		rfbEncoding.nEncodings = Swap16IfLE(2);
 		if (!SendBuffer(sSocket,(LPBYTE)&rfbEncoding,sizeof(rfbEncoding))) goto Cleanup;
-		dwEncoding = rfbEncodingHextile; 
+		dwEncoding = Swap32IfLE(rfbEncodingZlib); 
 		if (!SendBuffer(sSocket,(LPBYTE)&dwEncoding,sizeof(dwEncoding))) goto Cleanup;
-		dwEncoding = rfbEncodingRaw; 
+		dwEncoding = Swap32IfLE(rfbEncodingRaw); 
 		if (!SendBuffer(sSocket,(LPBYTE)&dwEncoding,sizeof(dwEncoding))) goto Cleanup;
 
 		//Request Full Frame Update
@@ -212,11 +259,8 @@ rfbServerToClientMsg			*Msg = NULL;
 							switch (uh.encoding)
 							{
 								case rfbEncodingRaw:
+								case rfbEncodingZlib:
 									if (!ProcessRawEncoding(&uh)) goto Cleanup;
-									break;
-
-								case rfbEncodingHextile:
-									if (!ProcessHexTileEncoding(&uh)) goto Cleanup;
 									break;
 							}
 						}
@@ -233,7 +277,7 @@ rfbServerToClientMsg			*Msg = NULL;
 
 				//Bell
 				case rfbBell:
-					MessageBeep(MAXDWORD);
+					MessageBeep(MB_OK);
 					break;
 
 				//Copy Server Clipboard
@@ -296,17 +340,64 @@ BOOL SendMouseEvent(DWORD dwFlags,DWORD dwXPos,DWORD dwYPos)
 	return SendBuffer(sSocket,(LPBYTE)&pe,sizeof(pe));
 }
 /****************************************************************************************************/
-static void SetPixels(DWORD dwXPos,DWORD dwYPos,DWORD dwWidth,DWORD dwHeight)
+BOOL SendKeyEvent(DWORD dwKey,BOOL bDown)
 {
-	LPWORD lpStartLine = (LPWORD)lpBitmapData + (dwXPos + (dwYPos * dwPitch));
-	LPWORD lpInBuffer = (LPWORD) lpRecvBuffer; 
+	rfbKeyEventMsg ke;
 
-	while (dwHeight--)
+	//Connected ?
+	if(!bConnected) return FALSE;
+
+	ke.type = rfbKeyEvent;
+    ke.down = bDown ? 1 : 0;
+    ke.key = Swap32IfLE(dwKey);
+	return SendBuffer(sSocket,(LPBYTE)&ke,sizeof(ke));
+}
+/****************************************************************************************************/
+static void SetPixels(LPVOID lpInBuffer,DWORD dwXPos,DWORD dwYPos,DWORD dwWidth,DWORD dwHeight)
+{
+	switch(wBPP)
 	{
-		DWORD dwCount = dwWidth;
-		DWORD dwPos = 0;
-		while (dwCount--) lpStartLine[dwPos++] = *lpInBuffer++;
-		lpStartLine += dwPitch;
+		case 32:
+			{
+				LPDWORD lpStartLine = (LPDWORD)lpBitmapData + (dwXPos + (dwYPos * dwPitch));
+				LPDWORD lpBuffer = (LPDWORD) lpInBuffer;
+				while (dwHeight--)
+				{
+					DWORD dwCount = dwWidth;
+					DWORD dwPos = 0;
+					while (dwCount--) lpStartLine[dwPos++] = *lpBuffer++;
+					lpStartLine += dwPitch;
+				}
+			}
+			break;
+
+		case 16:
+			{
+				LPWORD lpStartLine = (LPWORD)lpBitmapData + (dwXPos + (dwYPos * dwPitch));
+				LPWORD lpBuffer = (LPWORD) lpInBuffer;
+				while (dwHeight--)
+				{
+					DWORD dwCount = dwWidth;
+					DWORD dwPos = 0;
+					while (dwCount--) lpStartLine[dwPos++] = *lpBuffer++;
+					lpStartLine += dwPitch;
+				}
+			}
+			break;
+
+		case 8:
+			{
+				LPBYTE lpStartLine = (LPBYTE)lpBitmapData + (dwXPos + (dwYPos * dwPitch));
+				LPBYTE lpBuffer = (LPBYTE) lpInBuffer;
+				while (dwHeight--)
+				{
+					DWORD dwCount = dwWidth;
+					DWORD dwPos = 0;
+					while (dwCount--) lpStartLine[dwPos++] = *lpBuffer++;
+					lpStartLine += dwPitch;
+				}
+			}
+			break;
 	}
 }
 /****************************************************************************************************/
@@ -314,44 +405,27 @@ static BOOL ProcessRawEncoding(rfbFramebufferUpdateRectHeader *lpuh)
 {
 	DWORD dwPixels = lpuh->r.w * lpuh->r.h;
 	DWORD dwBytes = dwPixels * dwBytesPerPixel;
-	if (!RecvBuffer(sSocket,lpRecvBuffer,dwBytes)) return FALSE;
-	SetPixels(lpuh->r.x,lpuh->r.y,lpuh->r.w,lpuh->r.h);
-	return TRUE;
-}
-/****************************************************************************************************/
-static BOOL ProcessHexTileEncoding(rfbFramebufferUpdateRectHeader *lpuh)
-{
-	DWORD dwBytes = 16 * 16 * dwBytesPerPixel;
-	int rx = lpuh->r.x;
-	int ry = lpuh->r.y;
-	int rw = lpuh->r.w;
-	int rh = lpuh->r.h;
-	int w;
-	int h;
-	int iHeight = ry + rh;
-	int iWidth = rx + rw;
-	CARD8 subencoding;
-	CARD8 nSubrects;
-
-	for (int y=ry; y < iHeight; y+=16)
+	if (lpuh->encoding == rfbEncodingZlib)
 	{
-		for (int x=rx; x < iWidth; x+=16)
-		{
-			w = h = 16;
-			if (rx+rw - x < 16) w = rx+rw - x;  
-            if (ry+rh - y < 16) h = ry+rh - y;  
-			if (!RecvBuffer(sSocket,&subencoding,sizeof(CARD8))) return FALSE;
-			
-			//Normal HexTile
-			if (subencoding & rfbHextileRaw)
-			{
-				if (!RecvBuffer(sSocket,lpRecvBuffer,w * h * dwBytesPerPixel)) return FALSE;
-				SetPixels(x,y,w,h);
-				continue;
-			}
-		}
+		z_stream zstrm = {0};
+		LPBYTE lpCompress;
+		if (!RecvBuffer(sSocket,(LPBYTE)&dwBytes,sizeof(DWORD))) return FALSE;
+		dwBytes = Swap32IfLE(dwBytes);
+		lpCompress = (LPBYTE)LocalAlloc(LPTR,dwBytes);
+		if (!lpCompress) return FALSE;
+		if (!RecvBuffer(sSocket,lpCompress,dwBytes)) { LocalFree(lpCompress); return FALSE; }
+		inflateInit2(&zstrm,32);
+		zstrm.avail_in = dwBytes;
+		zstrm.next_in = lpCompress;
+		zstrm.avail_out = dwBufferSize;
+		zstrm.next_out = lpRecvBuffer;
+		inflate(&zstrm,Z_NO_FLUSH);
+		inflateEnd(&zstrm);
+		LocalFree(lpCompress);
+	}else{
+		if (!RecvBuffer(sSocket,lpRecvBuffer,dwBytes)) return FALSE;
 	}
-
+	SetPixels(lpRecvBuffer,lpuh->r.x,lpuh->r.y,lpuh->r.w,lpuh->r.h);
 	return TRUE;
 }
 /****************************************************************************************************/
