@@ -152,9 +152,6 @@ static BOOL Negotiate()
 static DWORD VNCThread(LPVOID lpParameter)
 {
 sockaddr_in		ConnectAddr;
-DWORD			dwValue;
-fd_set			fdWrite;
-timeval			tvTimeOut = {0};
 DWORD			dwEncoding;
 DWORD			dwReTry=0;
 HKEY			hKey;
@@ -193,23 +190,14 @@ rfbServerToClientMsg			*Msg = NULL;
 
 		//Create non-blocking socket
 		sSocket = socket(AF_INET,SOCK_STREAM,0);
-		dwValue=1;
-		ioctlsocket(sSocket,FIONBIO,&dwValue);
 		
 		//Try to connect To VNC Server
 		ConnectAddr.sin_family = AF_INET;
 		ConnectAddr.sin_port = htons((u_short)dwPort);
 		ConnectAddr.sin_addr.s_addr = inet_addr(szAddress);
 
-		FD_ZERO(&fdWrite);
-		FD_SET(sSocket,&fdWrite);
-		tvTimeOut.tv_sec = 1;
-		
 		//Attempt to connect
-		connect(sSocket,(sockaddr *)&ConnectAddr,sizeof(sockaddr_in));
-		if (select(0,NULL,&fdWrite,NULL,&tvTimeOut) == 	SOCKET_ERROR) goto Cleanup;
-
-		if (!FD_ISSET(sSocket,&fdWrite)) goto Cleanup;
+		if (connect(sSocket,(sockaddr *)&ConnectAddr,sizeof(sockaddr_in)) == SOCKET_ERROR) goto Cleanup;
 
 		//Display Message
 		SetMessage(L"Negotiating");

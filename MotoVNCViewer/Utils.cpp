@@ -4,20 +4,12 @@ BOOL SendBuffer(SOCKET sSocket,LPBYTE bBuffer,DWORD dwLength)
 {
 	DWORD	dwSent = 0;
 	DWORD	dwResult;
-	fd_set	fdSet;
-	timeval	tvTimeOut = {0};
 
 	//Is Valid Handle ?
 	if (sSocket == INVALID_SOCKET) return FALSE;
 
-	FD_ZERO(&fdSet);
-	FD_SET(sSocket,&fdSet);
-	tvTimeOut.tv_sec = 1;
 	while (dwSent != dwLength)
 	{
-		select(0,NULL,&fdSet,NULL,&tvTimeOut);
-		if (!FD_ISSET(sSocket,&fdSet)) return FALSE;
-
 		dwResult = send(sSocket,(char *)bBuffer + dwSent,dwLength - dwSent,0);
 		if ((dwResult == SOCKET_ERROR) || (dwResult == 0)) return FALSE;
 		dwSent += dwResult;
@@ -29,19 +21,11 @@ BOOL RecvBuffer(SOCKET sSocket,LPBYTE bBuffer,DWORD dwLength)
 {
 	DWORD	dwRecv = 0;
 	DWORD	dwResult;
-	fd_set	fdSet;
-	int iRes;
 
 	//Is Valid Handle ?
 	if (sSocket == INVALID_SOCKET) return FALSE;
-	FD_ZERO(&fdSet);
-	FD_SET(sSocket,&fdSet);
 	while (dwRecv != dwLength)
 	{
-		iRes = select(0,&fdSet,NULL,NULL,NULL);
-		if (iRes == SOCKET_ERROR) return FALSE;
-		if (!FD_ISSET(sSocket,&fdSet)) return FALSE;
-
 		dwResult = recv(sSocket,(char *)bBuffer + dwRecv,dwLength - dwRecv,0);
 		if ((dwResult == SOCKET_ERROR) || (dwResult == 0)) return FALSE;
 		dwRecv += dwResult;
