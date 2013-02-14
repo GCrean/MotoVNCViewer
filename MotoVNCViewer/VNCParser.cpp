@@ -35,7 +35,6 @@ static BOOL CreateImageBitmap()
 	LPDWORD				lpColorTable = NULL;
 
 	//Select the required format
-	bColorMode =1;
 	switch (bColorMode)
 	{
 		case 1:
