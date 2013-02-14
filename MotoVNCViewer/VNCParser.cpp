@@ -37,14 +37,17 @@ static BOOL CreateImageBitmap()
 	//Select the required format
 	switch (bColorMode)
 	{
+		//Default to 16 Bit
 		case 1:
 			vncSelectedFormat = &vnc16bitFormat;
 			break;
 
+		//Default to Server supplied
 		case 2:
 			vncSelectedFormat = &vncServerFormat;
 			break;
 
+		//Else use 8 bit
 		default:
 			vncSelectedFormat = &vnc8bitFormat;
 			break;

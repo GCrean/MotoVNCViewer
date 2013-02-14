@@ -14,12 +14,14 @@ IDirectDrawSurface  *	pSurf;											//Primary Surface Interface
 IDirectDrawSurface  *	pBackSurf;										//Background Surface Interface
 LPCWSTR					szMessage = NULL;								//Displayed Message
 CHAR					szAddress[40] = {0};							//IP Address of Server
-DWORD					dwPort = 5900;									// IP Port of Server
-KeyMap					keymap;
+DWORD					dwPort = 5900;									//IP Port of Server
+KeyMap					keymap;											//Keymap Class
+BOOL					bControl=FALSE;									//Last Key press was Control
 
 //Internal Windows Messages
 static LRESULT WndCreate(HWND hWnd, UINT wMsg, WPARAM wParam, LPARAM lParam);
 static LRESULT WndDestory(HWND hWnd, UINT wMsg, WPARAM wParam, LPARAM lParam);
+static LRESULT WndClose(HWND hWnd, UINT wMsg, WPARAM wParam, LPARAM lParam);
 static LRESULT WndPaint(HWND hWnd, UINT wMsg, WPARAM wParam, LPARAM lParam);
 static LRESULT WndLButtonDown(HWND hWnd, UINT wMsg, WPARAM wParam, LPARAM lParam);
 static LRESULT WndLButtonUp(HWND hWnd, UINT wMsg, WPARAM wParam, LPARAM lParam);
@@ -33,6 +35,7 @@ static const struct DecodeWindowMessage Messages[] =
 	WM_PAINT,WndPaint,
 	WM_CREATE,WndCreate,
 	WM_DESTROY,WndDestory,
+	WM_CLOSE,WndClose,
 	WM_LBUTTONUP,WndLButtonUp,
 	WM_LBUTTONDOWN,WndLButtonUp,
 	WM_MOUSEMOVE,WndMouseMove,
@@ -55,6 +58,12 @@ static LRESULT WndDestory(HWND hWnd, UINT wMsg, WPARAM wParam, LPARAM lParam)
 {
 	DeleteObject(hFont);
 	PostQuitMessage(0);
+	return 0;
+}
+/****************************************************************************************************/
+static LRESULT WndClose(HWND hWnd, UINT wMsg, WPARAM wParam, LPARAM lParam)
+{
+	DestroyWindow(hWnd);
 	return 0;
 }
 /****************************************************************************************************/
@@ -100,6 +109,14 @@ static LRESULT WndKeyEvent(HWND hWnd, UINT wMsg, WPARAM wParam, LPARAM lParam)
 KeyActionSpec kas = keymap.PCtoX(wParam, lParam);    
 BOOL bDown = ((lParam & 0x80000000l) == 0) ? TRUE : FALSE;
 
+	//Exit Key Combination
+	if (wParam == VK_CONTROL) bControl = bDown;
+	if (wParam == VK_F5 && bControl == TRUE)
+	{
+		PostMessage(hWnd,WM_CLOSE,0,0);
+		return 0;
+	}
+
     if (kas.releaseModifiers & KEYMAP_LCONTROL) {
         SendKeyEvent(XK_Control_L, FALSE );
     }
@@ -135,14 +152,14 @@ BOOL bDown = ((lParam & 0x80000000l) == 0) ? TRUE : FALSE;
 /****************************************************************************************************/
 static LRESULT WndCharEvent(HWND hWnd, UINT wMsg, WPARAM wParam, LPARAM lParam)
 {
-     if (wParam == 0x0D || wParam == 0x20 || wParam == 0x08) return 0;
-     if (wParam < 32) wParam += 64;  // map ctrl-keys onto alphabet
-     if (wParam > 32 && wParam < 127)
-	 {
+	if (wParam == 0x0D || wParam == 0x20 || wParam == 0x08) return 0;
+    if (wParam < 32) wParam += 64;  // map ctrl-keys onto alphabet
+    if (wParam > 32 && wParam < 127)
+	{
 		SendKeyEvent(wParam & 0xff, TRUE);
         SendKeyEvent(wParam & 0xff, FALSE);
-     }
-	 return 0;
+    }
+	return 0;
 }
 /****************************************************************************************************/
 static LRESULT CALLBACK WindowProc (HWND hWnd, UINT wMsg, WPARAM wParam,LPARAM lParam)
