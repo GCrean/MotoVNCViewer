@@ -17,7 +17,7 @@ static DWORD	dwBufferSize;
 static DWORD	dwPitch;
 static BOOL		bConnected = FALSE;
 static BYTE		bColorMode = 0;
-
+static z_stream zstrm = {0};
 static rfbPixelFormat vnc8bitFormat = {8, 8, 1, 1, 7,7,3, 0,3,6,0,0};
 static rfbPixelFormat vnc16bitFormat = {16, 16, 1, 1, 31, 63, 31, 11,5,0,0,0};
 static rfbPixelFormat vncServerFormat = {0};
@@ -35,6 +35,7 @@ static BOOL CreateImageBitmap()
 	LPDWORD				lpColorTable = NULL;
 
 	//Select the required format
+	bColorMode =1;
 	switch (bColorMode)
 	{
 		case 1:
@@ -70,7 +71,7 @@ static BOOL CreateImageBitmap()
 	lpBitmapInfo = (LPBITMAPINFO) LocalAlloc(LPTR,sizeof(BITMAPINFO) + (256 * sizeof(DWORD)));
 	if (!lpBitmapInfo) return FALSE;
 	lpColorTable = (LPDWORD) lpBitmapInfo->bmiColors;
-	dwPitch												= dwClientWidth + ((dwClientWidth / 4) % 4);
+	dwPitch												= dwClientWidth + (sizeof(DWORD) - (dwClientWidth % sizeof(DWORD)));
 	lpBitmapInfo->bmiHeader.biSize						= sizeof(BITMAPINFOHEADER);
 	lpBitmapInfo->bmiHeader.biCompression				= BI_BITFIELDS;
 	lpBitmapInfo->bmiHeader.biPlanes					= 1;
@@ -222,6 +223,7 @@ rfbServerToClientMsg			*Msg = NULL;
 
 		//Display Message
 		SetMessage(L"Waiting...");
+		inflateInit(&zstrm);
 
 		//Allocate Message Buffer
 		Msg = (rfbServerToClientMsg *) LocalAlloc(LPTR,sizeof(rfbServerToClientMsg));
@@ -293,6 +295,7 @@ Cleanup:
 		bConnected = FALSE;
 		ClearScreen();
 		LocalFree(Msg);
+		inflateEnd(&zstrm);
 		VirtualFree(lpRecvBuffer,dwBufferSize,MEM_DECOMMIT);
 		VirtualFree(lpBufferBase,0,MEM_RELEASE);
 		SelectObject(hClientDC,hOldBitmap);
@@ -391,26 +394,25 @@ static void SetPixels(LPVOID lpInBuffer,DWORD dwXPos,DWORD dwYPos,DWORD dwWidth,
 /****************************************************************************************************/
 static BOOL ProcessRawEncoding(rfbFramebufferUpdateRectHeader *lpuh)
 {
-	DWORD dwPixels = lpuh->r.w * lpuh->r.h;
-	DWORD dwBytes = dwPixels * dwBytesPerPixel;
+	DWORD dwPixels;
+	DWORD dwBytes;
 	if (lpuh->encoding == rfbEncodingZlib)
 	{
-		z_stream zstrm = {0};
 		LPBYTE lpCompress;
 		if (!RecvBuffer(sSocket,(LPBYTE)&dwBytes,sizeof(DWORD))) return FALSE;
 		dwBytes = Swap32IfLE(dwBytes);
 		lpCompress = (LPBYTE)LocalAlloc(LPTR,dwBytes);
 		if (!lpCompress) return FALSE;
 		if (!RecvBuffer(sSocket,lpCompress,dwBytes)) { LocalFree(lpCompress); return FALSE; }
-		inflateInit2(&zstrm,32);
 		zstrm.avail_in = dwBytes;
 		zstrm.next_in = lpCompress;
 		zstrm.avail_out = dwBufferSize;
 		zstrm.next_out = lpRecvBuffer;
-		inflate(&zstrm,Z_NO_FLUSH);
-		inflateEnd(&zstrm);
+		inflate(&zstrm,Z_FINISH);
 		LocalFree(lpCompress);
 	}else{
+		dwPixels = lpuh->r.w * lpuh->r.h;
+		dwBytes = dwPixels * dwBytesPerPixel;
 		if (!RecvBuffer(sSocket,lpRecvBuffer,dwBytes)) return FALSE;
 	}
 	SetPixels(lpRecvBuffer,lpuh->r.x,lpuh->r.y,lpuh->r.w,lpuh->r.h);
